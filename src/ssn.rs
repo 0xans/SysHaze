@@ -4,7 +4,30 @@ use crate::types::{SyscallEntry, HANDLE};
 use core::cell::UnsafeCell;
 use core::ffi::c_void;
 
+
+const RET_OPCODE: u8 = 0xC3;
+const SYSCALL_SEARCH_RANGE: isize = 32;
+const NEIGHBOUR_SEARCH_LIMIT: u32 = 500;
+
 pub const MAX_ENTRIES: usize = 64;
+
+#[cfg(target_arch = "x86_64")]
+mod arch {
+    /// x64 Nt stub pattern: `4C 8B D1 B8 xx xx 00 00` (mov r10,rcx; mov eax,SSN)
+    pub const MOV_R10_RCX_MOV_EAX: [u8; 4] = [0x4C, 0x8B, 0xD1, 0xB8];
+    pub const SSN_LOW_OFFSET: isize = 4;
+    pub const SSN_HIGH_OFFSET: isize = 5;
+    pub const STUB_SIZE: u32 = 0x12;
+}
+
+#[cfg(target_arch = "x86")]
+mod arch {
+    pub const MOV_EAX: [u8; 1] = [0xB8];
+    pub const SSN_LOW_OFFSET: isize = 1;
+    pub const SSN_HIGH_OFFSET: isize = 2;
+    pub const SYSCALL_OPCODE: u16 = 0x050F;
+    pub const STUB_SIZE: u32 = 0x0E;
+}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -79,7 +102,213 @@ pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool {
     }
     table.ntdll = ntdll;
 
-    // TODO: Resolve some of a common syscalls
+    // Resolve some of a common syscalls
+    let default_hashes: &[u32] = &[
+        // Process
+        hashes::NTOPENPROCESS_HASH,
+        hashes::NTTERMINATEPROCESS_HASH,
+        hashes::NTQUERYINFORMATIONPROCESS_HASH,
+        hashes::NTCREATEPROCESSEX_HASH,
+        hashes::NTGETNEXTPROCESS_HASH,
+        // Memory
+        hashes::NTALLOCATEVIRTUALMEMORY_HASH,
+        hashes::NTWRITEVIRTUALMEMORY_HASH,
+        hashes::NTREADVIRTUALMEMORY_HASH,
+        hashes::NTPROTECTVIRTUALMEMORY_HASH,
+        // Thread
+        hashes::NTCREATETHREADEX_HASH,
+        hashes::NTRESUMETHREAD_HASH,
+        hashes::NTQUEUEAPCTHREAD_HASH,
+        hashes::NTGETCONTEXTTHREAD_HASH,
+        hashes::NTSETCONTEXTTHREAD_HASH,
+        hashes::NTSETINFORMATIONTHREAD_HASH,
+        // Synchronization
+        hashes::NTWAITFORSINGLEOBJECT_HASH,
+        hashes::NTDELAYEXECUTION_HASH,
+        // Handle
+        hashes::NTCLOSE_HASH,
+        hashes::NTDUPLICATEOBJECT_HASH,
+        // File I/O
+        hashes::NTCREATEFILE_HASH,
+        hashes::NTWRITEFILE_HASH,
+        hashes::NTREADFILE_HASH,
+        hashes::NTSETINFORMATIONFILE_HASH,
+        hashes::NTDELETEFILE_HASH,
+        hashes::NTQUERYDIRECTORYFILE_HASH,
+        hashes::NTQUERYVOLUMEINFORMATIONFILE_HASH,
+        // Sections
+        hashes::NTCREATESECTION_HASH,
+        hashes::NTMAPVIEWOFSECTION_HASH,
+        hashes::NTUNMAPVIEWOFSECTION_HASH,
+        // System info
+        hashes::NTQUERYSYSTEMINFORMATION_HASH,
+        // Token
+        hashes::NTOPENPROCESSTOKEN_HASH,
+        hashes::NTQUERYINFORMATIONTOKEN_HASH,
+        hashes::NTDUPLICATETOKEN_HASH,
+        hashes::NTOPENTHREADTOKEN_HASH,
+        hashes::NTADJUSTPRIVILEGESTOKEN_HASH,
+        // I/O Completion
+        hashes::NTSETIOCOMPLETION_HASH,
+        hashes::NTQUERYINFORMATIONWORKERFACTORY_HASH,
+        // Registry
+        hashes::NTCREATEKEY_HASH,
+        hashes::NTSETVALUEKEY_HASH,
+        hashes::NTOPENKEY_HASH,
+        hashes::NTQUERYVALUEKEY_HASH,
+        hashes::NTDELETEKEY_HASH,
+        // Driver
+        hashes::NTLOADDRIVER_HASH,
+        hashes::NTUNLOADDRIVER_HASH,
+    ];
 
-    true
+    for &hash in default_hashes {
+        if table.count >= MAX_ENTRIES {
+            break;
+        }
+        resolve_ssn_internal(table, ntdll, hash);
+    }
+
+    // Verify at least NtClose resolved
+    table.get(hashes::NTCLOSE_HASH).is_some()
+}
+
+unsafe fn resolve_ssn_internal(table: &mut SyscallTable, ntdll: HANDLE, hash: u32) -> bool {
+    if table.count >= MAX_ENTRIES {
+        return false;
+    }
+
+    let address = resolver::ldr_function_by_hash(ntdll, hash);
+    if address.is_null() {
+        return false;
+    }
+
+    let slot = &mut table.slots[table.count];
+    slot.hash = hash;
+    let success = external_syscall_info(
+        address,
+        true,
+        Some(&mut slot.entry.ssn),
+        Some(&mut slot.entry.syscall_addr),
+    );
+
+    if success && slot.entry.is_resolved() {
+        table.count += 1;
+        true
+    } else {
+        *slot = TableSlot::empty();
+        false
+    }
+}
+
+unsafe fn extract_syscall_info(function: *mut c_void, resolve_hooked: bool, mut ssn: Option<&mut u16>, syscall_address: Option<&mut *mut c_void>) -> bool {
+    if function.is_null() {
+        return false;
+    }
+    if ssn.is_none() && syscall_address.is_none() {
+        return false;
+    }
+
+    let mut offset: isize = 0;
+    let mut success = false;
+
+    loop {
+        if *(function as *const i8).offset(offset) == RET_OPCODE {
+            break;
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            if *(function as *const [u8; 4]).offset(offset) == arch::MOV_R10_RCX_MOV_EAX {
+                if let Some(ssn_vale) = ssn.as_deref_mut() {
+                    let low = *(function as *const u8).offset(offset + arch::SSN_LOW_OFFSET);
+                    let high = *(function as *const u8).offset(offset + arch::SSN_HIGH_OFFSET);
+                    *ssn_vale = (high as u16) << 8 | low as u16;
+                    success = true;
+                }
+
+                // Search for the syscall;reg gadget (0F 05 C3)
+                if let Some(addr_out) = syscall_address {
+                    *addr_out = core::ptr::null_mut();
+                    for i in 0..SYSCALL_SEARCH_RANGE {
+                        let candidate = (function as *const u8).offset(offset + i);
+                        if *candidate == 0x0F 
+                            && *candidate.offset(1) == 0x05 
+                            && *candidate.offset(2) == RET_OPCODE 
+                        {
+                            *addr_out = candidate as *mut c_void;
+                            success = true;
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+        } 
+
+        #[cfg(target_arch = "x86")]
+        {
+            if *(function as *const u8).offset(offset) == arch::MOV_EAX[0] {
+                if let Some(ssn_val) = ssn.as_deref_mut() {
+                    let low = *(function as *const u8).offset(offset + arch::SSN_LOW_OFFSET);
+                    let high = *(function as *const u8).offset(offset + arch::SSN_HIGH_OFFSET);
+                    *ssn_val = (high as u16) << 8 | low as u16;
+                    success = true;
+                }
+                if let Some(addr_out) = syscall_address {
+                    *addr_out = core::ptr::null_mut();
+                    for i in 0..SYSCALL_SEARCH_RANGE {
+                        let candidate = (function as *const u16).offset(offset + i);
+                        if *candidate == arch::SYSCALL_OPCODE {
+                            *addr_out = candidate as *mut c_void;
+                            success = true;
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        offset += 1
+    }
+
+    // Halo's Gate: if the stub is hooked, try neighbor stubs
+    if !success && ssn.is_some() && resolve_hooked {
+        success = find_hooked_syscall_ssn(function, ssn.unwrap());
+    }
+
+    success
+}
+
+unsafe fn find_hooked_syscall_ssn(function: *mut c_void, ssn: &mut u16) -> bool {
+    let stub_size = arch::STUB_SIZE;
+    if stub_size == 0 {
+        return false;
+    }
+
+    for i in 1..NEIGHBOUR_SEARCH_LIMIT {
+        // Try forward neighbor
+        let neighbour = (function as usize + stub_size as usize * i as usize) as *mut c_void;
+        let mut neighbour_ssn: u16 = 0;
+        if extract_syscall_info(neighbour, false, Some(&mut neighbour_ssn), None) {
+            *ssn = neighbour_ssn.wrapping_sub(i as u16);
+            return true;
+        }
+
+        // Try backward neighbor
+        let neighbour =
+            (function as usize).wrapping_sub(stub_size as usize * i as usize) as *mut c_void;
+        let mut neighbour_ssn: u16 = 0;
+        if extract_syscall_info(neighbour, false, Some(&mut neighbour_ssn), None) {
+            *ssn = neighbour_ssn.wrapping_add(i as u16);
+            return true;
+        }
+    }
+
+    false
+}
+
+pub unsafe fn syscall_table() -> &'static SyscallTable {
+    &*GLOBAL_TABLE.0.get()
 }
