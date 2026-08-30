@@ -91,7 +91,7 @@ unsafe impl Sync for SyscallCell {}
 
 static GLOBAL_TABLE: SyscallCell = SyscallCell(UnsafeCell::new(SyscallTable::new()));
 
-pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool {
+pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool { unsafe {
     let table = &mut *GLOBAL_TABLE.0.get();
 
     if ntdll.is_null() {
@@ -171,9 +171,9 @@ pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool {
 
     // Verify at least NtClose resolved
     table.get(hashes::NTCLOSE_HASH).is_some()
-}
+}}
 
-pub unsafe fn resolve_ssn(hash: u32) -> bool {
+pub unsafe fn resolve_ssn(hash: u32) -> bool { unsafe {
     let table = &mut *GLOBAL_TABLE.0.get();
     if table.ntdll.is_null() {
         return false;
@@ -185,9 +185,9 @@ pub unsafe fn resolve_ssn(hash: u32) -> bool {
     }
 
     resolve_ssn_internal(table, table.ntdll, hash)
-}
+}}
 
-unsafe fn resolve_ssn_internal(table: &mut SyscallTable, ntdll: HANDLE, hash: u32) -> bool {
+unsafe fn resolve_ssn_internal(table: &mut SyscallTable, ntdll: HANDLE, hash: u32) -> bool { unsafe {
     if table.count >= MAX_ENTRIES {
         return false;
     }
@@ -199,7 +199,7 @@ unsafe fn resolve_ssn_internal(table: &mut SyscallTable, ntdll: HANDLE, hash: u3
 
     let slot = &mut table.slots[table.count];
     slot.hash = hash;
-    let success = external_syscall_info(
+    let success = extract_syscall_info(
         address,
         true,
         Some(&mut slot.entry.ssn),
@@ -213,9 +213,9 @@ unsafe fn resolve_ssn_internal(table: &mut SyscallTable, ntdll: HANDLE, hash: u3
         *slot = TableSlot::empty();
         false
     }
-}
+}}
 
-unsafe fn extract_syscall_info(function: *mut c_void, resolve_hooked: bool, mut ssn: Option<&mut u16>, syscall_address: Option<&mut *mut c_void>) -> bool {
+unsafe fn extract_syscall_info(function: *mut c_void, resolve_hooked: bool, mut ssn: Option<&mut u16>, syscall_address: Option<&mut *mut c_void>) -> bool { unsafe {
     if function.is_null() {
         return false;
     }
@@ -227,7 +227,7 @@ unsafe fn extract_syscall_info(function: *mut c_void, resolve_hooked: bool, mut 
     let mut success = false;
 
     loop {
-        if *(function as *const i8).offset(offset) == RET_OPCODE {
+        if *(function as *const u8).offset(offset) == RET_OPCODE {
             break;
         }
 
@@ -293,9 +293,9 @@ unsafe fn extract_syscall_info(function: *mut c_void, resolve_hooked: bool, mut 
     }
 
     success
-}
+}}
 
-unsafe fn find_hooked_syscall_ssn(function: *mut c_void, ssn: &mut u16) -> bool {
+unsafe fn find_hooked_syscall_ssn(function: *mut c_void, ssn: &mut u16) -> bool { unsafe {
     let stub_size = arch::STUB_SIZE;
     if stub_size == 0 {
         return false;
@@ -321,8 +321,8 @@ unsafe fn find_hooked_syscall_ssn(function: *mut c_void, ssn: &mut u16) -> bool 
     }
 
     false
-}
+}}
 
-pub unsafe fn syscall_table() -> &'static SyscallTable {
+pub unsafe fn syscall_table() -> &'static SyscallTable { unsafe {
     &*GLOBAL_TABLE.0.get()
-}
+}}
