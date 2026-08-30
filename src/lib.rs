@@ -6,7 +6,6 @@ mod resolver;
 mod types;
 mod invoke;
 mod macros;
-pub mod nt;
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -61,5 +60,3 @@ pub unsafe fn resolve_function(module: *mut c_void, hash: u32) -> *mut c_void {
 unsafe fn resolve_extra_ssn(hash: u32) -> bool {
     ssn::resolve_ssn(hash)
 }
-
-
