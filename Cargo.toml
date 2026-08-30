@@ -3,15 +3,11 @@ name = "syshaze"
 version = "0.1.0"
 edition = "2024"
 description = "Rust indirect syscall engine"
-readme = "Readme.md.md"
+readme = "Readme.md"
 
 [features]
 default = ["std"]
 std = []
 
 [lib]
-name = "engine"
 path = "src/lib.rs"
-
-[dependencies]
-
