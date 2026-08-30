@@ -173,6 +173,20 @@ pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool {
     table.get(hashes::NTCLOSE_HASH).is_some()
 }
 
+pub unsafe fn resolve_ssn(hash: u32) -> bool {
+    let table = &mut *GLOBAL_TABLE.0.get();
+    if table.ntdll.is_null() {
+        return false;
+    }
+
+    // Check if already resolved 
+    if table.get(hash).is_some() {
+        return true;
+    }
+
+    resolve_ssn_internal(table, table.ntdll, hash)
+}
+
 unsafe fn resolve_ssn_internal(table: &mut SyscallTable, ntdll: HANDLE, hash: u32) -> bool {
     if table.count >= MAX_ENTRIES {
         return false;
