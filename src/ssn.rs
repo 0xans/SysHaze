@@ -1,3 +1,17 @@
+//! # SSN extraction and hooked stub recovery
+//! 
+//! This module resolve SSNs at runtime by:
+//! 1. Finding an Nt function address in ntdll export table
+//! 2. Reading the `mov r10, rdx; mov eax, <SSN>` byte pattern from the stub
+//! 3. Locating the `syscall; ret` (0F 05 C3) gadget within that stub
+//!
+//! If a stub appears hooked, it uses **Halo's Gate** to find an unhooked one,   
+//! then compute the target SSN by offset 
+//! ## Architecture
+//!
+//! The engine maintains a global table of resolved `SyscallEntry` values.
+//! Each entry hold a SSN and the addres of the `syscall;ret` gadget from that specific function stub
+
 use crate::hashes;
 use crate::resolver;
 use crate::types::{SyscallEntry, HANDLE};
@@ -9,6 +23,8 @@ const RET_OPCODE: u8 = 0xC3;
 const SYSCALL_SEARCH_RANGE: isize = 32;
 const NEIGHBOUR_SEARCH_LIMIT: u32 = 500;
 
+// Maximum number of syscall entries we can hold
+// This is generous btw, Windows has around 470 syscalls total, so yah
 pub const MAX_ENTRIES: usize = 64;
 
 #[cfg(target_arch = "x86_64")]
@@ -29,6 +45,7 @@ mod arch {
     pub const STUB_SIZE: u32 = 0x0E;
 }
 
+// A resolved syscall entry paired with its hash for search
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct TableSlot {
@@ -51,6 +68,11 @@ pub struct SyscallTable {
     ntdll: HANDLE,
 }
 
+/**
+ * The global syscall table holds resovled SSN and syscall address pairs
+ * 
+ * Initialized once at start up then read only
+ * */
 impl SyscallTable {
     const fn new() -> Self {
         Self {
@@ -60,6 +82,11 @@ impl SyscallTable {
         }
     }
 
+    /**
+     * Search a resolved entry by its function hash
+     * 
+     * Return None if the hash was not resolved or resolution failed
+     * */
     pub fn get(&self, hash: u32) -> Option<&SyscallEntry> {
         for i in 0..self.count {
             if self.slots[i].hash == hash {
@@ -73,24 +100,48 @@ impl SyscallTable {
         None
     }
 
+    // Get the resolved ntdll base address.
     pub fn ntdll(&self) -> HANDLE {
         self.ntdll
     }
 
+    // Get the number of resolved etries.
     pub fn len(&self) -> usize {
         self.count
     }
 
+    // Check if the table is empty
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
 }
 
+
+// Wrapper to make SyscallInfo usable in a static.
+// Safety: initialized once then read only. *single threaded*
 struct SyscallCell(UnsafeCell<SyscallTable>);
 unsafe impl Sync for SyscallCell {}
 
 static GLOBAL_TABLE: SyscallCell = SyscallCell(UnsafeCell::new(SyscallTable::new()));
 
+
+/**
+ * Initialize the syscall engine
+ * 
+ * Resolved ntdll from the PEB then resolved a default set of common native syscall SSNs and 
+ * `syscall;ret` address for each function
+ * 
+ * Call this one at ur program startup before using any `nt::` wrappers or calling `resolved_)ssn()`
+ * 
+ * # Arguments
+ * `ntdll`: Optional handle to ntdll. If null the engine will find it vai PEB walk.
+ * 
+ * # Return 
+ * `true` if initialization was successfull
+ *  
+ * # Safety
+ * Must be called from a valid Windows process context
+ * */
 pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool { unsafe {
     let table = &mut *GLOBAL_TABLE.0.get();
 
@@ -173,6 +224,21 @@ pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool { unsafe {
     table.get(hashes::NTCLOSE_HASH).is_some()
 }}
 
+
+/**
+ * Resolve a single additional syscall by its function name hash
+ * 
+ * Use this to add syscalls beyond the default set after `initialize()`
+ * 
+ * # Example
+ * ```ignore
+ * let hash = syshaze::hashes::hash_str("NtSomeFunction");
+ * unsafe { syshaze::ssn::resolve_ssn(hash) }
+ * let entry = syshaze::ssn::syscall_table.get(hash);
+ * ```
+ * # Safety
+ * `initialize()` must have been called first
+ * */
 pub unsafe fn resolve_ssn(hash: u32) -> bool { unsafe {
     let table = &mut *GLOBAL_TABLE.0.get();
     if table.ntdll.is_null() {
@@ -186,6 +252,7 @@ pub unsafe fn resolve_ssn(hash: u32) -> bool { unsafe {
 
     resolve_ssn_internal(table, table.ntdll, hash)
 }}
+
 
 unsafe fn resolve_ssn_internal(table: &mut SyscallTable, ntdll: HANDLE, hash: u32) -> bool { unsafe {
     if table.count >= MAX_ENTRIES {
@@ -215,6 +282,15 @@ unsafe fn resolve_ssn_internal(table: &mut SyscallTable, ntdll: HANDLE, hash: u3
     }
 }}
 
+
+/**
+ * Extract the SSn and `syscall;ret` address from a Nt API stub
+ * 
+ * On x64 looks for the byte pattern `4C 8B D1 B8 xx xx 00 00` (mov r10,rcx; mov eax,SSN)
+ * then search forward for `0F 05 C3` (syscall;ret)
+ * 
+ * If the stub appears hooked, optionally tries Halo's Gate neighor walk to recover the correct SSN
+ * */
 unsafe fn extract_syscall_info(function: *mut c_void, resolve_hooked: bool, mut ssn: Option<&mut u16>, syscall_address: Option<&mut *mut c_void>) -> bool { unsafe {
     if function.is_null() {
         return false;
@@ -295,6 +371,13 @@ unsafe fn extract_syscall_info(function: *mut c_void, resolve_hooked: bool, mut 
     success
 }}
 
+
+/**
+ * Halo's Gate, recover the SSN of a hooked stub by inspecting neighors
+ * 
+ * Walks neighboring stubs (each `STUB_SIZE` byte apart)
+ * When it finds an unhookeed neighbor, it calculates the target SSN by adding/subtracting the distance
+ * */
 unsafe fn find_hooked_syscall_ssn(function: *mut c_void, ssn: &mut u16) -> bool { unsafe {
     let stub_size = arch::STUB_SIZE;
     if stub_size == 0 {
@@ -323,6 +406,13 @@ unsafe fn find_hooked_syscall_ssn(function: *mut c_void, ssn: &mut u16) -> bool 
     false
 }}
 
+
+/**
+ * Returns a reference to the initialized syscall table
+ * 
+ * # Safety
+ * `initialize()` must have been called first
+ * */
 pub unsafe fn syscall_table() -> &'static SyscallTable { unsafe {
     &*GLOBAL_TABLE.0.get()
 }}
