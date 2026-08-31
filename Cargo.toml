@@ -10,4 +10,10 @@ default = ["std"]
 std = []
 
 [lib]
+name = "engine"
 path = "src/lib.rs"
+
+[[bin]]
+name = "engine-hash"
+path = "tools/hasher.rs"
+require-features = ["std"]
