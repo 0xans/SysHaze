@@ -155,31 +155,25 @@ pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool { unsafe {
 
     // Resolve some of a common syscalls
     let default_hashes: &[u32] = &[
-        // Process
         hashes::NTOPENPROCESS_HASH,
         hashes::NTTERMINATEPROCESS_HASH,
         hashes::NTQUERYINFORMATIONPROCESS_HASH,
         hashes::NTCREATEPROCESSEX_HASH,
         hashes::NTGETNEXTPROCESS_HASH,
-        // Memory
         hashes::NTALLOCATEVIRTUALMEMORY_HASH,
         hashes::NTWRITEVIRTUALMEMORY_HASH,
         hashes::NTREADVIRTUALMEMORY_HASH,
         hashes::NTPROTECTVIRTUALMEMORY_HASH,
-        // Thread
         hashes::NTCREATETHREADEX_HASH,
         hashes::NTRESUMETHREAD_HASH,
         hashes::NTQUEUEAPCTHREAD_HASH,
         hashes::NTGETCONTEXTTHREAD_HASH,
         hashes::NTSETCONTEXTTHREAD_HASH,
         hashes::NTSETINFORMATIONTHREAD_HASH,
-        // Synchronization
         hashes::NTWAITFORSINGLEOBJECT_HASH,
         hashes::NTDELAYEXECUTION_HASH,
-        // Handle
         hashes::NTCLOSE_HASH,
         hashes::NTDUPLICATEOBJECT_HASH,
-        // File I/O
         hashes::NTCREATEFILE_HASH,
         hashes::NTWRITEFILE_HASH,
         hashes::NTREADFILE_HASH,
@@ -187,28 +181,22 @@ pub unsafe fn initialize(mut ntdll: *mut c_void) -> bool { unsafe {
         hashes::NTDELETEFILE_HASH,
         hashes::NTQUERYDIRECTORYFILE_HASH,
         hashes::NTQUERYVOLUMEINFORMATIONFILE_HASH,
-        // Sections
         hashes::NTCREATESECTION_HASH,
         hashes::NTMAPVIEWOFSECTION_HASH,
         hashes::NTUNMAPVIEWOFSECTION_HASH,
-        // System info
         hashes::NTQUERYSYSTEMINFORMATION_HASH,
-        // Token
         hashes::NTOPENPROCESSTOKEN_HASH,
         hashes::NTQUERYINFORMATIONTOKEN_HASH,
         hashes::NTDUPLICATETOKEN_HASH,
         hashes::NTOPENTHREADTOKEN_HASH,
         hashes::NTADJUSTPRIVILEGESTOKEN_HASH,
-        // I/O Completion
         hashes::NTSETIOCOMPLETION_HASH,
         hashes::NTQUERYINFORMATIONWORKERFACTORY_HASH,
-        // Registry
         hashes::NTCREATEKEY_HASH,
         hashes::NTSETVALUEKEY_HASH,
         hashes::NTOPENKEY_HASH,
         hashes::NTQUERYVALUEKEY_HASH,
         hashes::NTDELETEKEY_HASH,
-        // Driver
         hashes::NTLOADDRIVER_HASH,
         hashes::NTUNLOADDRIVER_HASH,
     ];
