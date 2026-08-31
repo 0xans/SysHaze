@@ -3,7 +3,6 @@
 //! Runtime SSN resolution with obfuscated indirect trampolines and per-function
 //! `syscall;ret` addresses. No static tables, no versions dependencies, and no `GetProcAddress`
 //!
-//!
 //! ## Architecture
 //!
 //! 1. **PEB Walk** (`resolver`): finds ntdll base without any API calls
@@ -23,8 +22,9 @@ pub mod hashes;
 pub mod resolver;
 pub mod types;
 pub mod invoke;
-pub mod macros;
 pub mod nt;
+#[macro_use]
+pub mod macros;
 
 use core::ffi::c_void;
 
