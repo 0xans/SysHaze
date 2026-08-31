@@ -1,3 +1,13 @@
+//! Resolve export and modules via PEB walking and PE export table parsing.
+//!
+//! All resolution is done at runtime using API hashing, no static imports, without using `GetProcAddress` or `LoadLibrary`
+//!
+//! # How it workds
+//! 1. Read PEB from `gs:[0x60]` one x64 or `fs:[0x30]` on x86
+//! 2. Walk `InLoadOrderModuleList` to find a module by its wide name hash
+//! 3. Parse the PE export table to find a function by its ASCII name hash
+//! 4. Optionally batch resolve multiple exports in a single pass, faster and less effort
+
 use core::arch::asm;
 use core::ffi::c_void;
 use core::ptr::{null_mut, read};
@@ -35,10 +45,26 @@ unsafe fn read_mem<T: Copy>(addr: *const T) -> T {
     unsafe { read(addr) }
 }
 
+/**
+ * Find a loaded module by its wide name hash
+ * 
+ * Walks the PEB `InLoadOrderModuleList` and return the module base address, or null if not found
+ * 
+ * # Safety
+ * Must be called from a vlide Windows process context with and intact PEB
+ * */
 pub unsafe fn ldr_module_search(module_hash: u32) -> HANDLE {
     unsafe { module_peb_by_hash(module_hash).map_or(null_mut(), |base| base as HANDLE) }
 }
 
+/**
+ * Resolve a single export from a module by its function name hash
+ * 
+ * Return the functio naddress or null if not found
+ * 
+ * # Safety 
+ * `module` must be a valid moduel base address obtained from `ldr_module_search` 
+ * */
 pub unsafe fn ldr_function_by_hash(module: HANDLE, hash: u32) -> HANDLE {
     unsafe {
         if module.is_null() {
@@ -48,6 +74,11 @@ pub unsafe fn ldr_function_by_hash(module: HANDLE, hash: u32) -> HANDLE {
     }
 }
 
+/**
+ * Walk the PEB InLoadOrderModuleList to find a module by its hash
+ * 
+ * Returns the module base address if found or None
+ * */
 unsafe fn module_peb_by_hash(target_hash: u32) -> Option<usize> {
     unsafe {
         let p = peb();
@@ -82,6 +113,12 @@ unsafe fn module_peb_by_hash(target_hash: u32) -> Option<usize> {
     }
 }
 
+/**
+ * Resolve a single export from a module by its function name hash
+ * 
+ * Walks the PE export table, compute the hash of each name, and returns the function address if found
+ * *Forwarded exports are intentionally skipped*
+ * */
 unsafe fn resolve_export_by_hash(module_base: usize, target_hash: u32) -> Option<*const c_void> {
     unsafe {
         if module_base == 0 {
@@ -166,6 +203,17 @@ unsafe fn resolve_export_by_hash(module_base: usize, target_hash: u32) -> Option
 /**
  * Batch resolve multiple exports in a single pass through the export table.
  * Instead of calling resolve_export_by_hash() N times, this walks the table ONCe and checks each export hash aganist all targets
+ * 
+ * **Performance**: 0(exports) instead of 0(exports * targets)
+ * for ntdll with around 2000 exports and roughly 15 targets: 2000 iteration vs 30000
+ * 
+ * # Args
+ * `module`: Valid module base address
+ * `targets`: Slice of `(hash, pointer to field)` pairs. On return each field is set of the resolved address
+ * (or let null if not found)
+ * 
+ * # Safety
+ * `module` must be a valid module base. Each `*mut *mut c_void` in targets must point to valid writable memory.
  * */
 pub unsafe fn resolve_exports_batch(module: HANDLE, targets: &mut [(u32, *mut *mut c_void)]) {
     unsafe {
