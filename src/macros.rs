@@ -1,3 +1,29 @@
+//! Macro for invoking syscall by hash
+
+/**
+ * Invoke an indirect syscall by function name hash and argument count
+ * 
+ * Looks up the entry from the global state then dispatches to the appropriate `invoke::syscallx()` and return NTSTATUS
+ * 
+ * # Usage
+ * ```ignore
+ * use syshaze::hashes;
+ * 
+ * let status = unsafe { syshaze::indirect_syscall!(hashes::NTCLOSE_HASH, handle as usize) }
+ * 
+ * let status = unsafe {
+ *     engine::indirect_syscall!(
+ *         hashes::NTALLOCATEVIRTUALMEMORY_HASH,
+ *         process as usize,
+ *         &mut base as *mut _ as usize,
+ *         0usize,
+ *         &mut size as *mut _ as usize,
+ *         0x3000usize,
+ *         0x40usize
+ *     )
+ * };
+ * ```
+ * */
 #[macro_export]
 macro_rules! indirect_syscall {
     ($hash:expr, $a1:expr) => {{
