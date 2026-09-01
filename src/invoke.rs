@@ -1,9 +1,24 @@
+//! Indirect syscall trampoline - obfuscated, per function dispatch
+//!
+//! The trampoline uses different opcodes than the standard SysWhisper pattern:
+//! - `xchg rcx, r10` instead of `mov r10, rcx`
+//! - `xor eax, eax` + `mov ax, [rip+ssn]` instead of `mov eax, [rip+ssn]`
+//! - `push + ret` instead of `jmp` 
+//! The trampoline jumps to the target function own `syscall;ret` instruction inside inside ntdll, so the return address
+//! on the stach point into ntdll
+
+
+
 use core::arch::global_asm;
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use crate::types::NTSTATUS;
 
+// Trampoline state, using atmoics for thread visibility
+// NOTE: The trampoline is NOT safe for concurrent use from multiple threads, if two threads call
+// different syscall at the same time, there is a reace between `set_config()` and the trampoline reading the values
+// Use a mutex or thread if u need concurrent syscalls
 static SC_REG_EAX: AtomicU32 = AtomicU32::new(0);
 static SC_JMP_TARGET: AtomicU64 = AtomicU64::new(0);
 
@@ -20,6 +35,8 @@ global_asm!(
     addr = sym SC_JMP_TARGET,
 );
 
+// Load the SSN and syscall address into the trampoline state
+// Use `Release` ordering to ensure values are visible to the trampoline before it read them
 #[allow(clashing_extern_declarations)]
 unsafe extern "system" {
     #[link_name = "IndirectCallDispatch"]
@@ -226,6 +243,10 @@ pub unsafe fn syscall11(
     }
 }
 
+/**
+ * Call a regular function by its resolved address
+ * This is useful for calling Rtl* / win32 function resolved via the export table
+ * */
 pub unsafe fn call1(func: *mut c_void, a1: usize) -> NTSTATUS {
     unsafe {
         let f: unsafe extern "system" fn(usize) -> NTSTATUS = core::mem::transmute(func);
