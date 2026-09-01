@@ -1,7 +1,8 @@
-/**
- * Hash Constants - Seeded DJB2 + XOR finalization
- * Algorithm: seed=0x60475117, body=((h<<5)+h)+c, xor=0x76717421
- */
+//! API hashing, seeded DJB2 with XOR
+//!
+//! Hash Constants - Seeded DJB2 + XOR finalization
+//! Algorithm: seed=0x60475117, body=((h<<5)+h)+c, xor=0x76717421
+
 pub const HASH_SEED: u32 = 0x60475117;
 pub const HASH_XOR: u32 = 0x76717421;
 
